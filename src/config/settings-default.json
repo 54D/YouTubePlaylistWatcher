@@ -1,0 +1,13 @@
+{
+    "mongodb": {
+        "host": "<host>",
+        "port": "<port>",
+        "username": "<username>",
+        "password": "<password>",
+        "database": "<database>",
+        "auth_source": "<auth_source>",
+        "app_name": "<app_name>",
+        "ssl": "<ssl>"
+    }
+
+}
