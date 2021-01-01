@@ -6,7 +6,7 @@ const DEBUG_MODE: boolean = false;
 // axios
 import axios, { AxiosResponse } from 'axios';
 // discord.js
-import discord, { Client, DiscordAPIError, Message, MessageEmbed } from 'discord.js';
+import discord, { Client, Message, MessageEmbed } from 'discord.js';
 const client: Client = new discord.Client();
 // mongoose
 import mongoose, { Connection, Schema } from 'mongoose';
