@@ -74,14 +74,20 @@ function encodeURL(data: any): string {
 /* Bigger utilities */
 
 // Specialized YouTube API call -- get playlist items
-async function getPlaylistItems(playlistId: string): Promise<AxiosResponse>{
+async function getPlaylistItems(playlistId: string,data: AxiosResponse[] = [],nextPageKey: string = "") {
     var url: string = "https://www.googleapis.com/youtube/v3/playlistItems";
-    return axios.get(url,{
+    await axios.get(url,{
         params:{
             key: tokens.youtube.api.key,
             part: "snippet",
             maxResults: 50,
+            pageToken: nextPageKey,
             playlistId: playlistId
+        }
+    }).then(response => {
+        data.push(response);
+        if(response.data.nextPageToken!==undefined){
+            getPlaylistItems(playlistId,data,response.data.nextPageToken); // recursion not yet done D:
         }
     });
 }
