@@ -74,6 +74,7 @@ function encodeURL(data: any): string {
 /* Bigger utilities */
 
 // Specialized YouTube API call -- get playlist items
+// TODO: recursion Q_Q
 async function getPlaylistItems(playlistId: string): Promise<AxiosResponse>{
     var url: string = "https://www.googleapis.com/youtube/v3/playlistItems";
     return axios.get(url,{
