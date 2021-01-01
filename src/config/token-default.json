@@ -1,0 +1,21 @@
+{
+    "_comment": "Remove this line, and remove `-default` from filename after filling in.",
+    "discord": {
+        "client_secret": "<discord-app-client-secret>",
+        "bot_token": "<discord-app-bot-token>"
+    },
+    "youtube": {
+        "api": {
+            "key": "<youtube-api-key>"
+        },
+        "oauth-web": {
+            "client_id":"<youtube-oauth-client-id>",
+            "project_id":"<youtube-oauth-project-id>",
+            "auth_uri":"https://accounts.google.com/o/oauth2/auth",
+            "token_uri":"https://oauth2.googleapis.com/token",
+            "auth_provider_x509_cert_url":"https://www.googleapis.com/oauth2/v1/certs",
+            "client_secret":"<youtube-oauth-client-secret>"
+        }
+    }
+
+}
