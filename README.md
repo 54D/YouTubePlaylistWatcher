@@ -12,7 +12,7 @@ Command prefix is `/yt`.
 
 |Subcommand|Explanation|
 |-|-|
-|`watch <id|link>`|Ask the bot to start watching the specified playlist.<br> - `<id|link>`: the playlist ID or link.|
+|`watch <id\|link>`|Ask the bot to start watching the specified playlist.<br> - `<id\|link>`: the playlist ID or link.|
 
 ## Setup & run
 
