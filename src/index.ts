@@ -74,16 +74,24 @@ function encodeURL(data: any): string {
 /* Bigger utilities */
 
 // Specialized YouTube API call -- get playlist items
-// TODO: recursion Q_Q
-async function getPlaylistItems(playlistId: string): Promise<AxiosResponse>{
+async function getPlaylistItems(playlistId: string,data: AxiosResponse[] = [],nextPageKey: string = ""): Promise<AxiosResponse[]> {
     var url: string = "https://www.googleapis.com/youtube/v3/playlistItems";
-    return axios.get(url,{
+    await axios.get(url,{
         params:{
             key: tokens.youtube.api.key,
             part: "snippet",
             maxResults: 50,
+            pageToken: nextPageKey,
             playlistId: playlistId
         }
+    }).then(async response => {
+        data.push(response);
+        if(response.data.nextPageToken!==undefined){
+            await getPlaylistItems(playlistId,data,response.data.nextPageToken);
+        }
+    });
+    return new Promise((resolve,reject) => {
+        resolve(data);
     });
 }
 
@@ -204,7 +212,9 @@ async function watchPlaylist(userId: string,playlistId:string) {
 }
 
 // Playlist change processing
-async function processPlaylistsChanges(){
+function processPlaylistsChanges(){
+
+    // TODO: if playlist becomes private, remove it
 
     return new Promise(async (resolve,reject) => {
 
@@ -215,45 +225,44 @@ async function processPlaylistsChanges(){
             var changes: any[] = [];
             var count: number = 0;
 
-            async function chain() {
-                return new Promise((resolve,reject) => {
-                    resolve("OK");
+            // detect all changes in stored playlist
+            let f = () => {
+                return new Promise<number>(async (resolve,reject) => {
+                    var videos: any[] = cursor.get("videos");
+                    for await (const video of videos){
+                        // we don't watch already private or deleted videos until they come back
+                        if(video.title !== "Private video" && video.title !== "Deleted video"){
+                            await getVideo(video.videoId)
+                            .then(response => {
+                                if(response.data.pageInfo.totalResults==0){
+                                    changes.push(video);
+                                    count++;
+                                    logConsole("debug","Change count: "+count);
+                                    logConsole("debug","Changed: " + video.videoId + "/" + video.title);
+                                }
+                            }).catch(error => {
+                                changes.push(video);
+                                count++;
+                                logConsole("debug","Change count: "+count);
+                                logConsole("debug","Changed: " + video.videoId + "/" + video.title);
+                            });
+                        }
+                    }
+                    resolve(count);
                 });
             }
 
-            // detect all changes in stored playlist
-            var videos: any[] = cursor.get("videos");
-            for(const video of videos){
-                if(video.title !== "Private video" && video.title !== "Deleted video"){
-                    await getVideo(video.videoId)
-                    .then(response => {
-                        if(response.data.pageInfo.totalResults==0){
-                            logConsole("debug","  No video was returned.");
-                            changes.push(video);
-                            count++;
-                            logConsole("debug","Changed: " + video.videoId + "/" + video.title);
-                        }else{
-                            logConsole("debug","  Obtained video: " + response.data.items[0].snippet.title);
-                        }
-                    }).catch(error => {
-                        logConsole("debug","  Error while obtaining video: " + error.message);
-                        changes.push(video);
-                        count++;
-                        logConsole("debug","Changed: " + video.videoId + "/" + video.title);
-                    });
-                }
-            }
-
-            // notify all watchers
-            var watchers: any[] = cursor.get("watchers",[String]);
-            for(const watcher of watchers){
-                await client.users.fetch(watcher)
-                .then(user => {
-                    logConsole("debug","Number of changes: " + count);
-                    if(count>0){ 
-                        logConsole("info","Changes detected in playlist "+playlistId+", notifying watcher "+user+".");
-                        user.createDM()
-                        .then(dmChannel => {
+            await f().then(count => {
+                logConsole("debug","Change count: "+count);
+                // notify watchers if there are changes
+                if(count!=0){
+                    logConsole("info",count+" changes detected in playlist "+playlistId+", notifying watchers.");
+                    var watchers: any[] = cursor.get("watchers",[String]);
+                    for(const watcher of watchers){
+                        client.users.fetch(watcher)
+                        .then(user => {
+                            return user.createDM()
+                        }).then(dmChannel => {
                             // send changes as embed
                             var embed: MessageEmbed = new MessageEmbed({
                                 author: {
@@ -275,32 +284,47 @@ async function processPlaylistsChanges(){
                                 list = list+" - "+changes[i].title+"\n";
                             }
                             embed.addField("List of privated / deleted videos:",list,true);
+                            embed.addField("Number of changes: ",count,true);
                             dmChannel.send(embed).catch(error => {
-                                logConsole("error","Error occured while DMing user: "+error.message);
+                                logConsole("error","Error occured while DMing watcher: "+error.message);
                             })
                         }).catch(error => {
-                            logConsole("error","Error occured while DMing user: "+error.message);
+                            logConsole("error","Error occured while fetching or DMing watcher: " + error.message);
+                            // TODO: watcher cleanup stuff
                         });
                     }
+                }
+                resolve("OK");
+            }).then(() => {
+                // sync the new playlist
+                getPlaylistItems(playlistId)
+                .then(async data => {
+                    var items: any[] = [];
+                    for await(const p of data){
+                        for(const v of p.data.items){
+                            items.push(v);
+                        }
+                    }
+                    if(DEBUG_MODE){
+                        logConsole("debug","PLAYLIST "+playlistId+" ------------ ");
+                        var c: number = 0;
+                        for await(const i of items){
+                            c++;
+                            logConsole("debug","  "+c+"\t" + i.snippet.title);
+                        }
+                    }
+                    createPlaylist(items,true)
+                    .then(success => {
+                    }).catch(error => {
+                        logConsole("error","Error occured while syncing playlist items: "+error.message);
+                    });
                 }).catch(error => {
-                    logConsole("error","Error occured while fetching watcher: " + error.message);
+                    logConsole("error","Error occured while getting playlist items: "+error.message);
                 });
-            }
-
-            // sync the new playlist
-            await getPlaylistItems(playlistId) // TODO: change to process multiple pages
-            .then(response => {
-                createPlaylist(response.data.items,true)
-                .then(success => {
-                }).catch(error => {
-                    logConsole("error","Error occured while syncing playlist items: "+error.message);
-                });
-            }).catch(error => {
-                logConsole("error","Error occured while getting playlist items: "+error.message);
-            });
+            })
+            resolve("OK");
 
         });
-        resolve("OK");
 
     });
 
@@ -331,7 +355,7 @@ mongoose.connect(
 db = mongoose.connection;
 
 // Setup playlist change processing
-var result: cron.Job = cron.scheduleJob(`* * * * *`,function(){
+var result: cron.Job = cron.scheduleJob(`0 0 * * *`,function(){
     processPlaylistsChanges();
 });
 if(result===null){
@@ -357,7 +381,7 @@ client.once('open', () => {
 // Discord client connection result
 client.once('ready', () => {
     logConsole("info","Now listening to commands.");
-    if(DEBUG_MODE){
+    if(DEBUG_MODE){ 
         processPlaylistsChanges();
     }
 });
@@ -390,11 +414,24 @@ client.on('message', message => {
         }
 
         // perform watching
-        getPlaylistItems(command) // TODO: change to process multiple pages
-        .then(response => {
-            createPlaylist(response.data.items)
+        getPlaylistItems(command)
+        .then(async data => {
+            var items: any[] = [];
+            for await(const p of data){
+                for await(const v of p.data.items){
+                    items.push(v);
+                }
+            }
+            if(DEBUG_MODE){
+                var c: number = 0;
+                for await (const i of items){
+                    c++;
+                    logConsole("debug","  "+c+"\t" + i.snippet.title);
+                }
+            }
+            createPlaylist(items)
             .then(success => {
-                watchPlaylist(message.author.id,response.data.items[0].snippet.playlistId)
+                watchPlaylist(message.author.id,items[0].snippet.playlistId)
                 .then(success => {
                     message.channel.send(success as string);
                 }).catch(error => {
