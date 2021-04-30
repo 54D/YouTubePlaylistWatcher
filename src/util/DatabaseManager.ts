@@ -4,11 +4,11 @@ import mongoose, { Connection } from 'mongoose';
 
 export default class DatabaseManager {
 
-    private connection: Connection;
+    private connection?: Connection;
 
     constructor(){}
     
-    connect(): Connection {
+    connect(settings: any): Connection {
 
         var query: string = new EncodedURL({
             "authSource": settings.mongodb.auth_source,
@@ -27,8 +27,13 @@ export default class DatabaseManager {
             }).catch( error => {
             Logger.logConsole("error",error.message);
         });
-        return mongoose.connection;
+        this.connection = mongoose.connection;
+        return this.connection;
 
+    }
+
+    getConnection(): Connection | undefined {
+        return this.connection;
     }
 
 }

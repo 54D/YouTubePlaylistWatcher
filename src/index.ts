@@ -10,6 +10,7 @@ import discord, { Client } from 'discord.js';
 const client: Client = new discord.Client();
 // mongoose
 import mongoose, { Schema } from 'mongoose';
+var db;
 // node-schedule
 import cron from 'node-schedule';
 
@@ -193,6 +194,7 @@ async function watchPlaylist(userId: string,playlistId:string) {
         }).then( (result: any) => {
             if(result===null){
                 Logger.logConsole("error","Database issue -- this playlist has not been recorded!");
+                reject("Database issue -- this playlist has not been recorded!");
             }else{
                 var watcherIds: [string] = result!.get("watchers");
                 if(watcherIds.includes(userId)){
@@ -295,7 +297,7 @@ function processPlaylistsChanges(){
                         var c: number = 0;
                         for await(const i of items){
                             c++;
-                            Logger.logConsole("debug","  "+c+"\t" + i.snippet.title);
+                            Logger.logConsole("debug","  " + c + " " + i.snippet.title);
                         }
                     }
                     // TODO: change to return promise, then do then chaining instead
@@ -334,7 +336,8 @@ function processPlaylistsChanges(){
 /* Initialization */
 
 // Open database connection
-DatabaseManager.connect();
+let dbMan: DatabaseManager = new DatabaseManager();
+db = dbMan.connect(settings);
 
 // Setup playlist change processing
 var result: cron.Job = cron.scheduleJob(`0 0 * * *`,function(){
@@ -412,7 +415,7 @@ client.on('message', message => {
                 var c: number = 0;
                 for await (const i of items){
                     c++;
-                    Logger.logConsole("debug","  "+c+"\t" + i.snippet.title);
+                    Logger.logConsole("debug","  " + c + " " + i.snippet.title);
                 }
             }
             return items;
