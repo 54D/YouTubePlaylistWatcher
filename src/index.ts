@@ -1,7 +1,10 @@
 /* Setup */
 
 // Debug mode
-const DEBUG_MODE: boolean = false;
+const DEBUG_MODE: boolean = true;
+
+// own classes
+import NotificationEmbed from './embeds/NotificationEmbed';
 
 // axios
 import axios, { AxiosResponse } from 'axios';
@@ -9,10 +12,11 @@ import axios, { AxiosResponse } from 'axios';
 import discord, { Client, Message, MessageEmbed } from 'discord.js';
 const client: Client = new discord.Client();
 // mongoose
-import mongoose, { Connection, Schema } from 'mongoose';
+import mongoose, { Connection, QueryCursor, Schema } from 'mongoose';
 var db: Connection;
 // node-schedule
 import cron from 'node-schedule';
+
 // Local files
 import tokens from './config/token.json';
 import settings from './config/settings.json';
@@ -89,6 +93,25 @@ async function getPlaylistItems(playlistId: string,data: AxiosResponse[] = [],ne
         if(response.data.nextPageToken!==undefined){
             await getPlaylistItems(playlistId,data,response.data.nextPageToken);
         }
+    }).catch(error => {
+        return new Promise((resolve,reject) => {
+            var status: number = error.response!.status;
+            switch(status){
+                case 400:
+                    reject("An empty playlist ID was provided.");
+                    break;
+                case 403:
+                    reject("The playlist is not accessible.");
+                    break;
+                case 404:
+                    reject("The playlist does not exist or is not public.");
+                    break;
+                default:
+                    logConsole("warn","An unexpected error occured while calling YouTube API.");
+                    reject("An unexpected error occured while calling YouTube API.");
+                    break;
+            }
+        });
     });
     return new Promise((resolve,reject) => {
         resolve(data);
@@ -133,11 +156,11 @@ async function createPlaylist(playlist: any[],replace: boolean = false) {
         videos.push(entry);
     }
 
-    return new Promise((resolve,reject) => {
+    return new Promise<any>((resolve,reject) => {
 
         Playlist.findOne({
             playlistId: playlistId
-        }).then(result=>{
+        }).then( (result: any) => {
             if(result===null){
                 const playlist = new Playlist({
                     playlistId  : playlistId,
@@ -146,13 +169,16 @@ async function createPlaylist(playlist: any[],replace: boolean = false) {
                     watchers    : [],
                     lastUpdate  : new Date()
                 });
-                playlist.save((error)=>{
+                playlist.save( (error: any) => {
                     if(error){
                         logConsole("error",error.message);
                         reject(error.message);
                     }else{
                         logConsole("info","Playlist "+playlistId+" has been successfully CREATED.");
-                        resolve("Playlist "+playlistId+" has been successfully CREATED.");
+                        resolve({
+                            "message":`Playlist ${playlistId} has been successfully CREATED.`,
+                            playlist
+                        });
                     }
                 });
             }else if(replace){
@@ -165,11 +191,17 @@ async function createPlaylist(playlist: any[],replace: boolean = false) {
                         logConsole("error","An unexpected error occured while updating a watch list.");
                         reject("An unexpected error occured while updating a watch list.");
                     }else{
-                        resolve("Playlist "+playlistId+" has been successfully UPDATED.");
+                        resolve({
+                            "message":`Playlist ${playlistId} has been successfully UPDATED.`,
+                            playlist
+                        });
                     }
                 });
             }else{
-                resolve("Playlist "+playlistId+" already exists in database, update will occur periodically.");
+                resolve({
+                    "message":`Playlist ${playlistId} already exists in database, update will occur periodically.`,
+                    playlist
+                });
             }
         });
 
@@ -184,7 +216,7 @@ async function watchPlaylist(userId: string,playlistId:string) {
 
         Playlist.findOne({
             playlistId: playlistId
-        }).then(result=>{
+        }).then( (result: any) => {
             if(result===null){
                 logConsole("error","Database issue -- this playlist has not been recorded!");
             }else{
@@ -214,12 +246,10 @@ async function watchPlaylist(userId: string,playlistId:string) {
 // Playlist change processing
 function processPlaylistsChanges(){
 
-    // TODO: if playlist becomes private, remove it
-
     return new Promise(async (resolve,reject) => {
 
         // set up cursor
-        (await Playlist.find()).forEach(async cursor => {
+        (await Playlist.find()).forEach(async (cursor: any) => {
 
             var playlistId: string = cursor.get("playlistId",String);
             var changes: any[] = [];
@@ -252,45 +282,26 @@ function processPlaylistsChanges(){
                 });
             }
 
-            await f().then(count => {
+            await f().then(async count => {
                 logConsole("debug","Change count: "+count);
                 // notify watchers if there are changes
                 if(count!=0){
                     logConsole("info",count+" changes detected in playlist "+playlistId+", notifying watchers.");
-                    var watchers: any[] = cursor.get("watchers",[String]);
-                    for(const watcher of watchers){
+                    let watchers: any[] = cursor.get("watchers",[String]);
+                    let newWatchers: any[] = cursor.get("watchers",[String]);
+                    for await(const [i,watcher] of watchers.entries()){
                         client.users.fetch(watcher)
                         .then(user => {
                             return user.createDM()
                         }).then(dmChannel => {
                             // send changes as embed
-                            var embed: MessageEmbed = new MessageEmbed({
-                                author: {
-                                    name: "YouTube Playlist Watcher",
-                                    iconURL: "https://i.gyazo.com/666945b5f0eb94b0aac7fc69e2ea8759.png"
-                                },
-                                description: "The following videos have been changed since YTPW last checked.\n",
-                                footer: {
-                                    text: "Click on the link above to visit your playlist."
-                                },
-                                hexColor: "#00054D",
-                                title: "Playlist change notification",
-                                type: "rich",
-                                url: "https://www.youtube.com/playlist?list="+playlistId
-                            });
-                            embed.setTimestamp(Date.now());
-                            var list: string = "";
-                            for(let i=0;i<count;i++){
-                                list = list+" - "+changes[i].title+"\n";
-                            }
-                            embed.addField("List of privated / deleted videos:",list,true);
-                            embed.addField("Number of changes: ",count,true);
+                            var embed: NotificationEmbed = new NotificationEmbed(playlistId, changes, count);
                             dmChannel.send(embed).catch(error => {
                                 logConsole("error","Error occured while DMing watcher: "+error.message);
-                            })
+                            });
                         }).catch(error => {
-                            logConsole("error","Error occured while fetching or DMing watcher: " + error.message);
-                            // TODO: watcher cleanup stuff
+                            logConsole("error","Error occured while fetching or DMing watcher, watcher has been removed: " + error.message);
+                            newWatchers.splice(i,1);
                         });
                     }
                 }
@@ -313,16 +324,30 @@ function processPlaylistsChanges(){
                             logConsole("debug","  "+c+"\t" + i.snippet.title);
                         }
                     }
+                    // TODO: change to return promise, then do then chaining instead
                     createPlaylist(items,true)
                     .then(success => {
                     }).catch(error => {
                         logConsole("error","Error occured while syncing playlist items: "+error.message);
                     });
-                }).catch(error => {
-                    logConsole("error","Error occured while getting playlist items: "+error.message);
+                }).catch(async error => {
+                    let watchers: any[] = cursor.get("watchers",[String]);
+                    for await(const watcher of watchers){
+                        client.users.fetch(watcher)
+                        .then(user => {
+                            return user.createDM()
+                        }).then(dmChannel => {
+                            dmChannel.send("A previously watched playlist has become unavailable, and has been automatically unwatched: \n"+playlistId);
+                            // TODO: playlist NAME add into schema
+                        }).catch(error => {
+                            logConsole("error","Error occured while fetching or DMing watcher: " + error.message);
+                        });
+                    }
+                    cursor.remove();
+                    reject("");
                 });
             })
-            resolve("OK");
+            resolve("");
 
         });
 
@@ -429,18 +454,16 @@ client.on('message', message => {
                     logConsole("debug","  "+c+"\t" + i.snippet.title);
                 }
             }
-            createPlaylist(items)
-            .then(success => {
-                watchPlaylist(message.author.id,items[0].snippet.playlistId)
-                .then(success => {
-                    message.channel.send(success as string);
-                }).catch(error => {
-                    message.channel.send(error);
-                });
-            }).catch(error => {
-                message.channel.send(error);
-            });
+            return items;
+        }).then(items => {
+            return createPlaylist(items);
+        }).then(response => {
+            return watchPlaylist(message.author.id,response.playlist[0].snippet.playlistId)
+        }).then(success => {
+            message.channel.send(success as string);
         }).catch(error => {
+            message.channel.send(error);
+            /*
             var status: number = error.response!.status;
             switch(status){
                 case 400:
@@ -457,6 +480,7 @@ client.on('message', message => {
                     message.channel.send("An unexpected error occured while calling YouTube API.");
                     break;
             }
+            */
         });
 
     }
