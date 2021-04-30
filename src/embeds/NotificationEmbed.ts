@@ -1,7 +1,7 @@
 import { MessageEmbed } from "discord.js";
-import * as en from "../lang/en.json"
+import * as en from "../lang/en.json";
 
-export default class extends MessageEmbed {
+export default class NotificationEmbed extends MessageEmbed {
 
 	playlistId: string
 
