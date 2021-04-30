@@ -137,7 +137,7 @@ async function createPlaylist(playlist: any[],replace: boolean = false) {
 
         Playlist.findOne({
             playlistId: playlistId
-        }).then(result=>{
+        }).then( (result: any)=>{
             if(result===null){
                 const playlist = new Playlist({
                     playlistId  : playlistId,
@@ -146,7 +146,7 @@ async function createPlaylist(playlist: any[],replace: boolean = false) {
                     watchers    : [],
                     lastUpdate  : new Date()
                 });
-                playlist.save((error)=>{
+                playlist.save((error: any)=>{
                     if(error){
                         logConsole("error",error.message);
                         reject(error.message);
@@ -184,7 +184,7 @@ async function watchPlaylist(userId: string,playlistId:string) {
 
         Playlist.findOne({
             playlistId: playlistId
-        }).then(result=>{
+        }).then((result: any)=>{
             if(result===null){
                 logConsole("error","Database issue -- this playlist has not been recorded!");
             }else{
@@ -219,7 +219,7 @@ function processPlaylistsChanges(){
     return new Promise(async (resolve,reject) => {
 
         // set up cursor
-        (await Playlist.find()).forEach(async cursor => {
+        (await Playlist.find()).forEach(async (cursor: any) => {
 
             var playlistId: string = cursor.get("playlistId",String);
             var changes: any[] = [];
